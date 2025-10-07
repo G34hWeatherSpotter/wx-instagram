@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Weather Caption Generator</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Weather Caption Generator</h1>
+
+    <div class="controls">
+      <label>ZIP or "lat,lon"
+        <input id="input-loc" placeholder="e.g., 02139 or 42.36,-71.06" />
+      </label>
+      <label>Days
+        <select id="input-days"><option>1</option><option selected>3</option><option>5</option></select>
+      </label>
+      <button id="btn-generate">Generate</button>
+    </div>
+
+    <section id="results" class="hidden">
+      <h2 id="place-title"></h2>
+
+      <div class="block">
+        <h3>Short caption</h3>
+        <pre id="short-caption"></pre>
+        <button class="copy" data-target="short-caption">Copy</button>
+      </div>
+
+      <div class="block">
+        <h3>Long caption</h3>
+        <pre id="long-caption"></pre>
+        <button class="copy" data-target="long-caption">Copy</button>
+      </div>
+
+      <div class="block">
+        <h3>Alt text</h3>
+        <pre id="alt-text"></pre>
+        <button class="copy" data-target="alt-text">Copy</button>
+      </div>
+
+      <div class="block" id="alerts-block" style="display:none">
+        <h3>Active alerts</h3>
+        <ul id="alerts-list"></ul>
+      </div>
+
+      <div class="meta">
+        <small id="updated-ts"></small>
+      </div>
+    </section>
+
+    <footer>
+      <small>Client-side app — no server required. Uses api.zippopotam.us and api.weather.gov.</small>
+    </footer>
+  </main>
+
+  <script src="caption.js"></script>
+</body>
+</html>
