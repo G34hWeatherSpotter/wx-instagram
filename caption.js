@@ -1,16 +1,12 @@
 // caption.js
-// Client-side caption generator for GitHub Pages
-// Extended: includes image suggestion generator.
+// Minimal SPA for GitHub Pages: ZIP/latlon -> NWS forecast -> captions, alt text, image suggestions
+// Added: Hazardous Weather Outlook (HWO) lookup and display.
 
 (async function(){
-  const EMOJI_MAP = {
-    sun: "☀️", cloud: "☁️", rain: "🌧️", showers: "🌦️",
-    thunder: "⛈️", snow: "❄️", wind: "🌬️", fog: "🌫️", cold: "🧊", hot: "🔥"
-  };
+  const EMOJI_MAP = { sun:"☀️", cloud:"☁️", rain:"🌧️", showers:"🌦️", thunder:"⛈️", snow:"❄️", wind:"🌬️", fog:"🌫️" };
   const HASHTAGS_BASE = ["#weather","#forecast","#localweather"];
 
   const el = id => document.getElementById(id);
-  const q = s => document.querySelector(s);
 
   const input = el("input-loc");
   const daysSel = el("input-days");
@@ -24,6 +20,8 @@
   const alertsBlock = el("alerts-block");
   const alertsList = el("alerts-list");
   const updatedTs = el("updated-ts");
+  const hwoBlock = el("hwo-block");
+  const hwoText = el("hwo-text");
 
   document.addEventListener("click", e=>{
     const btn = e.target.closest("button.copy");
@@ -33,43 +31,18 @@
       const prev = btn.innerText;
       btn.innerText = "Copied";
       setTimeout(()=> btn.innerText = prev,1200);
-    });
+    }).catch(()=> alert("Copy failed"));
   });
 
-  function detectConditions(text){
-    const t = text.toLowerCase();
-    const flags = new Set();
-    if(/thunder|t-storm|thunderstorm/.test(t)) flags.add("thunder");
-    if(/rain|showers|drizzle/.test(t)) flags.add("rain");
-    if(/snow|flurr|sleet/.test(t)) flags.add("snow");
-    if(/fog|mist|haze/.test(t)) flags.add("fog");
-    if(/wind|gust/.test(t)) flags.add("wind");
-    if(/sunny|clear|mostly sunny/.test(t)) flags.add("sun");
-    if(/cloudy|mostly cloudy|partly cloudy/.test(t)) flags.add("cloud");
-    return Array.from(flags);
-  }
-
-  function emojiForFlags(flags){
-    const set = new Set(flags);
-    const out=[];
-    if(set.has("thunder")) out.push(EMOJI_MAP.thunder);
-    if(set.has("rain") && !set.has("thunder")) out.push(EMOJI_MAP.rain);
-    if(set.has("snow")) out.push(EMOJI_MAP.snow);
-    if(set.has("sun") && out.length===0) out.push(EMOJI_MAP.sun);
-    if(set.has("cloud") && out.length===0) out.push(EMOJI_MAP.cloud);
-    if(set.has("wind")) out.push(EMOJI_MAP.wind);
-    if(set.has("fog")) out.push(EMOJI_MAP.fog);
-    return out.join(" ") || EMOJI_MAP.cloud;
-  }
-
+  // Simple localStorage cache (10 minutes)
   function cacheGet(key){
     try{
       const raw = localStorage.getItem(key);
       if(!raw) return null;
       const obj = JSON.parse(raw);
-      if(Date.now() - obj.ts > (1000*60*10)) { localStorage.removeItem(key); return null; } // 10m
+      if(Date.now() - obj.ts > 1000*60*10) { localStorage.removeItem(key); return null; }
       return obj.val;
-    }catch(e){return null}
+    }catch(e){ return null; }
   }
   function cacheSet(key,val){
     try{ localStorage.setItem(key, JSON.stringify({ts:Date.now(), val})); }catch(e){}
@@ -82,9 +55,7 @@
     if(!r.ok) throw new Error("ZIP lookup failed");
     const data = await r.json();
     const p = data.places[0];
-    const lat = parseFloat(p.latitude), lon = parseFloat(p.longitude);
-    const place = `${p['place name']}, ${data['state abbreviation']||data['country abbreviation']||''}`;
-    const out = {lat,lon,place};
+    const out = { lat: parseFloat(p.latitude), lon: parseFloat(p.longitude), place: `${p['place name']}, ${data['state abbreviation']||data['country abbreviation']||''}` };
     cacheSet("zip:"+zip,out);
     return out;
   }
@@ -121,6 +92,32 @@
     return data.features;
   }
 
+  function detectConditions(text){
+    const t = (text||"").toLowerCase();
+    const flags = new Set();
+    if(/thunder|t-storm|thunderstorm/.test(t)) flags.add("thunder");
+    if(/rain|showers|drizzle/.test(t)) flags.add("rain");
+    if(/snow|flurr|sleet/.test(t)) flags.add("snow");
+    if(/fog|mist|haze/.test(t)) flags.add("fog");
+    if(/wind|gust/.test(t)) flags.add("wind");
+    if(/sunny|clear|mostly sunny/.test(t)) flags.add("sun");
+    if(/cloudy|mostly cloudy|partly cloudy/.test(t)) flags.add("cloud");
+    return Array.from(flags);
+  }
+
+  function emojiForFlags(flags){
+    const set = new Set(flags||[]);
+    const out=[];
+    if(set.has("thunder")) out.push(EMOJI_MAP.thunder);
+    if(set.has("rain") && !set.has("thunder")) out.push(EMOJI_MAP.rain);
+    if(set.has("snow")) out.push(EMOJI_MAP.snow);
+    if(set.has("sun") && out.length===0) out.push(EMOJI_MAP.sun);
+    if(set.has("cloud") && out.length===0) out.push(EMOJI_MAP.cloud);
+    if(set.has("wind")) out.push(EMOJI_MAP.wind);
+    if(set.has("fog")) out.push(EMOJI_MAP.fog);
+    return out.join(" ") || EMOJI_MAP.cloud;
+  }
+
   function aggregateDays(periods, days){
     const now = new Date();
     const cutoff = new Date(now.getTime() + days*24*3600*1000);
@@ -144,15 +141,7 @@
       const flags = detectConditions(combined);
       const day_period = items.find(it => it.isDaytime);
       const night_period = items.find(it => !it.isDaytime);
-      out.push({
-        date: new Date(k+"T00:00:00Z"),
-        high: highs,
-        low: lows,
-        flags,
-        day_text: day_period?day_period.shortForecast:null,
-        night_text: night_period?night_period.shortForecast:null,
-        raw: items
-      });
+      out.push({ date: new Date(k+"T00:00:00Z"), high: highs, low: lows, flags, day_text: day_period?day_period.shortForecast:null, night_text: night_period?night_period.shortForecast:null, raw: items });
     }
     return out;
   }
@@ -233,77 +222,160 @@
     return parts.join(" ");
   }
 
-  // New: image suggestion generator
   function buildImageSuggestions(agg, place, alerts){
     if(!agg.length) return "No image suggestions available.";
     const first = agg[0];
     const flags = new Set(first.flags);
     const suggestions = [];
-    // Main concept
     if(flags.has("thunder")){
-      suggestions.push("Concept: Dramatic storm — dark clouds, wet streets or silhouette of trees. Aim for high contrast and moody tones.");
-      suggestions.push("Action: Capture during/after a downpour; include reflections or a skyline silhouette. Consider an action shot with an umbrella or lightning silhouette.");
-      suggestions.push("Overlay: bold headline e.g., 'Storm Watch' in white on a semi-opaque red/orange bar. Use ⚠️ or ⛈️ icon.");
-      suggestions.push("Crop: square (1:1) or portrait (4:5) for strong vertical compositions.");
-      suggestions.push("Palette: deep charcoal #0b1220, accent orange #ff6b35, highlight white.");
+      suggestions.push("Concept: Dramatic storm — dark clouds, wet streets, silhouette. Use moody tones.");
     } else if(flags.has("rain")){
-      suggestions.push("Concept: Rain mood — umbrella, raindrops on a window, reflections in puddles.");
-      suggestions.push("Action: Shoot close-up raindrops or street reflections in soft light; capture motion for umbrellas or people with splashes.");
-      suggestions.push("Overlay: short headline like 'Rain Today' or temp (e.g., '55° / 44°') in thin uppercase; use blue-gray semi-transparent bar.");
-      suggestions.push("Crop: square (1:1) or vertical 4:5 for posts with a person holding an umbrella.");
-      suggestions.push("Palette: slate blue #556c8a, cool gray #9fb0d4, accent yellow #ffc857 for contrast.");
+      suggestions.push("Concept: Rain — umbrella, reflections, puddles. Use cool slate palette with a warm accent.");
     } else if(flags.has("snow")){
-      suggestions.push("Concept: Snow — wide shot of flakes, rooftops, or close-up textures on branches.");
-      suggestions.push("Action: Capture soft light or backlight flakes at golden hour; include footprints or a cozy subject.");
-      suggestions.push("Overlay: 'Snow Possible' or temp headline in dark text on a light translucent bar; add ❄️.");
-      suggestions.push("Crop: square or landscape depending on scene; portrait works for people in snow.");
-      suggestions.push("Palette: cool cyan #bfe7ff, soft gray #dfeffb, deep navy accents.");
+      suggestions.push("Concept: Snow — flakes/backlight/frost textures. Use cool palette.");
     } else if(flags.has("fog")){
-      suggestions.push("Concept: Fog & mood — low contrast, minimal compositions, lone subject.");
-      suggestions.push("Action: Use negative space; let fog simplify the background and focus on one object (lamp post, tree).");
-      suggestions.push("Overlay: minimal text (one line) with small serif or uppercase; muted palette.");
-      suggestions.push("Crop: square with center or left-aligned subject for editorial feel.");
-      suggestions.push("Palette: muted beige #cfcfcf, soft blue-gray #aebccd.");
-    } else if(flags.has("sun") && !flags.has("cloud")){
-      suggestions.push("Concept: Sunny/golden hour — warm, vibrant scenes, portraits, outdoors.");
-      suggestions.push("Action: Shoot in golden hour; include sun flare or warm backlight. Use shadows for depth.");
-      suggestions.push("Overlay: bright headline like 'Mostly Sunny' with warm accent; consider a subtle badge with ☀️.");
-      suggestions.push("Crop: square or portrait (4:5) for people/landscape combos.");
-      suggestions.push("Palette: warm gold #ffc857, soft orange #ffb86b, deep blue for contrast.");
+      suggestions.push("Concept: Fog — minimal, lonely subject with negative space.");
+    } else if(flags.has("sun")){
+      suggestions.push("Concept: Sunny/golden hour — warm backlight, sun flare, long shadows.");
     } else {
-      // default mixed conditions
-      suggestions.push("Concept: Mixed skies — combine sky texture with local subject (street, park, skyline).");
-      suggestions.push("Action: Balanced exposure; include foreground interest (tree, building) and sky as background.");
-      suggestions.push("Overlay: concise headline (one short phrase) and temp; small icon for condition.");
-      suggestions.push("Crop: square for Instagram feed; keep safe margins for overlays.");
-      suggestions.push("Palette: neutral blues and grays with one warm accent (e.g., #ffc857).");
+      suggestions.push("Concept: Mixed skies — sky texture + local foreground subject.");
     }
-
-    // wind-specific tip
-    if(flags.has("wind")){
-      suggestions.push("Wind tip: emphasize motion — motion blur on grasses/flags, hair/clothing movement; diagonal compositions work well.");
-    }
-
-    // temperature extremes
     if(first.high != null && first.low != null){
-      if(first.high >= 90) suggestions.push("Hot day: emphasize sun, warm colors, and hydration props (iced drink, sunglasses).");
-      if(first.low <= 32) suggestions.push("Freezing: show breath, gloves, or frost textures; use cool palette and soft light.");
+      if(first.high >= 90) suggestions.push("Hot day: emphasize sun and warm colors.");
+      if(first.low <= 32) suggestions.push("Freezing: show breath/frost textures and cool palette.");
     }
-
-    // alerts
     if(alerts && alerts.length){
-      suggestions.push("Alerts: Create an attention image variant — red/orange banner with '⚠️ Alert' and a one-line action (e.g., 'Avoid flooded roads'). Add link-in-bio note.");
+      suggestions.push("Alerts: add an attention banner variant (red/orange) with a short directive.");
     }
-
-    // practical file and overlay suggestions
-    suggestions.push("Overlay text suggestion: use the short caption headline or a 3–4 word summary (e.g., 'Rain Today — Bring an Umbrella').");
-    suggestions.push("Filename suggestion: " + place.split(",")[0].replace(/\s+/g,"_") + "_forecast_" + (new Date().toISOString().slice(0,10)) + ".jpg");
-    suggestions.push("Accessibility: include the alt text produced above; add a short alt describing the photo and the weather snapshot.");
-    suggestions.push("Final tip: export at 1080×1080 for feed or 1080×1350 for portrait; keep important text inside a 90% safe margin.");
-
+    suggestions.push("Overlay: headline (1–4 words) + small temp line. Export at 1080×1080 or 1080×1350.");
     return suggestions.join("\n\n");
   }
 
+  // --- HWO lookup ---
+  // Try: (1) alerts API filtered by event, (2) products endpoint for forecast office (defensive parsing).
+  async function fetchHwoForPoint(lat, lon, office){
+    // 1) try alerts query for event=Hazardous Weather Outlook
+    try{
+      const aurl = `https://api.weather.gov/alerts?point=${lat},${lon}&event=${encodeURIComponent("Hazardous Weather Outlook")}`;
+      const r = await fetch(aurl);
+      if(r.ok){
+        const data = await r.json();
+        if(Array.isArray(data.features) && data.features.length){
+          // pick the most recent HWO-like feature
+          const f = data.features[0];
+          const p = f.properties || {};
+          const headline = p.headline || p.event || "Hazardous Weather Outlook";
+          const desc = (p.description || p.instruction || p.headline || "").trim();
+          return {source: "alerts", title: headline, text: desc, raw: p};
+        }
+      }
+    }catch(e){
+      console.warn("HWO alert query failed", e);
+    }
+
+    // 2) fallback: try products list for the forecast office and find HWO product
+    if(office){
+      try{
+        // fetch products for office (may be large, but we cache)
+        const pkey = `products:${office}`;
+        const cached = cacheGet(pkey);
+        let productsJson = cached;
+        if(!productsJson){
+          const url = `https://api.weather.gov/products?office=${office}`;
+          const r2 = await fetch(url);
+          if(r2.ok){
+            productsJson = await r2.json();
+            cacheSet(pkey, productsJson);
+          }
+        }
+        if(productsJson){
+          // defensively search through returned items for 'hazardous' or 'hwo'
+          const entries = productsJson.products || productsJson || [];
+          for(const ent of entries){
+            const rawText = JSON.stringify(ent || "").toLowerCase();
+            if(rawText.includes("hazardous weather outlook") || rawText.includes("\"type\":\"hwo\"") || rawText.includes(" hwo ")){
+              // try to fetch the actual product text if there's an id or productURI
+              // common field: ent.productId or ent.id or ent.productURI
+              const candidateUrl = ent.id || ent.productURI || ent.productUrl;
+              if(candidateUrl && typeof candidateUrl === "string" && candidateUrl.startsWith("http")){
+                try{
+                  const rp = await fetch(candidateUrl);
+                  if(rp.ok){
+                    const pj = await rp.json();
+                    // many product endpoints include 'productText' or 'properties.productText'
+                    const body = pj.productText || (pj.properties && pj.properties.productText) || (pj.properties && (pj.properties.headline || pj.properties.description)) || "";
+                    return {source: "products", title: ent.title || ent.productName || "Hazardous Weather Outlook", text: (body || "").trim(), raw: ent};
+                  }
+                }catch(e){}
+              } else {
+                // if no direct URL, return a summary using ent.title or ent.productName
+                return {source: "products", title: ent.title || ent.productName || "Hazardous Weather Outlook", text: (ent.summary || ent.description || "").trim(), raw: ent};
+              }
+            }
+          }
+        }
+      }catch(e){
+        console.warn("HWO products fetch failed", e);
+      }
+    }
+
+    // nothing found
+    return null;
+  }
+
+  // --- Helpers: SVG download & copy bundle ---
+  function escapeXml(s){ return String(s || "").replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function downloadPrefilledSVG({ headline, subline, miniStripText, filename = "overlay_1080.svg" } = {}) {
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escapeXml(headline || 'overlay')}">
+  <style>
+    .h{font-family:Inter,Arial,sans-serif;font-weight:700;font-size:56px;fill:#ffc857}
+    .s{font-family:Inter,Arial,sans-serif;font-weight:600;font-size:22px;fill:#e6eef8}
+    .m{font-family:Inter,Arial,sans-serif;font-weight:500;font-size:16px;fill:#e6eef8}
+  </style>
+  <rect width="1080" height="1080" fill="transparent"/>
+  <g transform="translate(60,840)">
+    <rect x="0" y="0" width="960" height="180" rx="14" fill="#071227" opacity="0.35"/>
+    <text x="38" y="64" class="h">${escapeXml(headline || "")}</text>
+    <text x="38" y="104" class="s">${escapeXml(subline || "")}</text>
+  </g>
+  <g transform="translate(60,320)">
+    <text class="m">${escapeXml(miniStripText || "")}</text>
+  </g>
+</svg>`;
+    const blob = new Blob([svg], {type: "image/svg+xml;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function copyAllForIG({ shortCaption, longCaption, altTextVal, hashtags = [] } = {}) {
+    const block = [
+      shortCaption || "",
+      "",
+      longCaption || "",
+      "",
+      "Alt text:",
+      altTextVal || "",
+      "",
+      (hashtags.length ? hashtags.join(" ") : "")
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(block);
+      alert("Caption bundle copied to clipboard!");
+    } catch (e) {
+      console.error("Copy failed", e);
+      alert("Copy failed — please copy manually.");
+    }
+  }
+
+  // UI wiring
   async function generateForInput(rawInput, days){
     let lat,lon,place;
     if(rawInput.includes(",")){
@@ -316,14 +388,23 @@
       const r = await zipToLatLon(z);
       lat = r.lat; lon = r.lon; place = r.place;
     }
-
     const point = await fetchNwsPoint(lat,lon);
     const forecastUrl = point.properties && point.properties.forecast;
+    const office = point.properties && point.properties.forecastOffice;
     if(!forecastUrl) throw new Error("No forecast for location");
     const periods = await fetchNwsForecast(forecastUrl);
     const alerts = await fetchNwsAlerts(lat,lon);
     const agg = aggregateDays(periods, days);
-    return {place, agg, alerts};
+
+    // attempt to fetch HWO (hazardous weather outlook)
+    let hwo = null;
+    try{
+      hwo = await fetchHwoForPoint(lat, lon, office);
+    }catch(e){
+      console.warn("HWO fetch error", e);
+    }
+
+    return {place, agg, alerts, hwo, lat, lon, office};
   }
 
   btn.addEventListener("click", async ()=>{
@@ -331,14 +412,29 @@
     if(!val) { alert("Enter ZIP or lat,lon"); return; }
     btn.disabled = true; btn.innerText="Loading...";
     results.classList.add("hidden");
+    // hide HWO until loaded
+    hwoBlock.style.display = "none";
     try{
       const days = parseInt(daysSel.value,10);
-      const {place, agg, alerts} = await generateForInput(val, days);
+      const {place, agg, alerts, hwo, lat, lon, office} = await generateForInput(val, days);
       placeTitle.innerText = place;
       shortCap.innerText = buildShortCaption(agg, place, alerts);
       longCap.innerText = buildLongCaption(agg, place, days, alerts);
       altText.innerText = buildAltText(agg, place);
       imageSuggestions.innerText = buildImageSuggestions(agg, place, alerts);
+
+      // HWO display
+      if(hwo){
+        const title = hwo.title || (hwo.raw && (hwo.raw.event || hwo.raw.productName)) || "Hazardous Weather Outlook";
+        const text = hwo.text || (hwo.raw && (hwo.raw.description || hwo.raw.productText || hwo.raw.headline)) || "";
+        hwoText.innerText = `${title}\n\n${text}`.trim();
+        hwoBlock.style.display = "";
+      } else {
+        hwoText.innerText = "No Hazardous Weather Outlook found for this location.";
+        // show block so you can copy the no-result string if needed
+        hwoBlock.style.display = "";
+      }
+
       if(alerts && alerts.length){
         alertsBlock.style.display = "";
         alertsList.innerHTML = "";
@@ -361,14 +457,36 @@
     }
   });
 
-  // small convenience: press Enter in input triggers generate
+  // Enter key triggers generate
   input.addEventListener("keydown", e=>{
     if(e.key === "Enter") btn.click();
   });
 
-  // expose helper for debugging
-  window._wxHelper = {
-    generateForInput
-  };
+  // One-click actions wiring
+  const copyAllBtn = el("btn-copy-all");
+  const downloadSvgBtn = el("btn-download-svg");
+  if(copyAllBtn){
+    copyAllBtn.addEventListener("click", ()=>{
+      const sc = shortCap.innerText || "";
+      const lc = longCap.innerText || "";
+      const at = altText.innerText || "";
+      const tags = HASHTAGS_BASE.slice();
+      copyAllForIG({ shortCaption: sc, longCaption: lc, altTextVal: at, hashtags: tags });
+    });
+  }
+  if(downloadSvgBtn){
+    downloadSvgBtn.addEventListener("click", ()=>{
+      const headline = (shortCap.innerText || "").split("\n")[0] || "Weather Snapshot";
+      const place = placeTitle.innerText || "";
+      const updated = new Date().toLocaleDateString();
+      const subline = `${place} · Updated ${updated}`;
+      const mini = longCap.innerText.split("\n").slice(0,5).join("  •  ");
+      const filename = (place?place.split(",")[0].replace(/\s+/g,"_"):"forecast") + "_" + (new Date().toISOString().slice(0,10)) + ".svg";
+      downloadPrefilledSVG({ headline, subline, miniStripText: mini, filename });
+    });
+  }
+
+  // expose a helper for debugging
+  window._wxHelper = { generateForInput, fetchHwoForPoint };
 
 })();
