@@ -1,6 +1,6 @@
 // caption.js
 // Client-side caption generator for GitHub Pages
-// No build step required. Drop caption.js, index.html, style.css into repo.
+// Extended: includes image suggestion generator.
 
 (async function(){
   const EMOJI_MAP = {
@@ -20,6 +20,7 @@
   const shortCap = el("short-caption");
   const longCap = el("long-caption");
   const altText = el("alt-text");
+  const imageSuggestions = el("image-suggestions");
   const alertsBlock = el("alerts-block");
   const alertsList = el("alerts-list");
   const updatedTs = el("updated-ts");
@@ -29,8 +30,9 @@
     if(!btn) return;
     const target=el(btn.dataset.target);
     navigator.clipboard.writeText(target.innerText).then(()=> {
+      const prev = btn.innerText;
       btn.innerText = "Copied";
-      setTimeout(()=> btn.innerText="Copy",1200);
+      setTimeout(()=> btn.innerText = prev,1200);
     });
   });
 
@@ -231,6 +233,77 @@
     return parts.join(" ");
   }
 
+  // New: image suggestion generator
+  function buildImageSuggestions(agg, place, alerts){
+    if(!agg.length) return "No image suggestions available.";
+    const first = agg[0];
+    const flags = new Set(first.flags);
+    const suggestions = [];
+    // Main concept
+    if(flags.has("thunder")){
+      suggestions.push("Concept: Dramatic storm — dark clouds, wet streets or silhouette of trees. Aim for high contrast and moody tones.");
+      suggestions.push("Action: Capture during/after a downpour; include reflections or a skyline silhouette. Consider an action shot with an umbrella or lightning silhouette.");
+      suggestions.push("Overlay: bold headline e.g., 'Storm Watch' in white on a semi-opaque red/orange bar. Use ⚠️ or ⛈️ icon.");
+      suggestions.push("Crop: square (1:1) or portrait (4:5) for strong vertical compositions.");
+      suggestions.push("Palette: deep charcoal #0b1220, accent orange #ff6b35, highlight white.");
+    } else if(flags.has("rain")){
+      suggestions.push("Concept: Rain mood — umbrella, raindrops on a window, reflections in puddles.");
+      suggestions.push("Action: Shoot close-up raindrops or street reflections in soft light; capture motion for umbrellas or people with splashes.");
+      suggestions.push("Overlay: short headline like 'Rain Today' or temp (e.g., '55° / 44°') in thin uppercase; use blue-gray semi-transparent bar.");
+      suggestions.push("Crop: square (1:1) or vertical 4:5 for posts with a person holding an umbrella.");
+      suggestions.push("Palette: slate blue #556c8a, cool gray #9fb0d4, accent yellow #ffc857 for contrast.");
+    } else if(flags.has("snow")){
+      suggestions.push("Concept: Snow — wide shot of flakes, rooftops, or close-up textures on branches.");
+      suggestions.push("Action: Capture soft light or backlight flakes at golden hour; include footprints or a cozy subject.");
+      suggestions.push("Overlay: 'Snow Possible' or temp headline in dark text on a light translucent bar; add ❄️.");
+      suggestions.push("Crop: square or landscape depending on scene; portrait works for people in snow.");
+      suggestions.push("Palette: cool cyan #bfe7ff, soft gray #dfeffb, deep navy accents.");
+    } else if(flags.has("fog")){
+      suggestions.push("Concept: Fog & mood — low contrast, minimal compositions, lone subject.");
+      suggestions.push("Action: Use negative space; let fog simplify the background and focus on one object (lamp post, tree).");
+      suggestions.push("Overlay: minimal text (one line) with small serif or uppercase; muted palette.");
+      suggestions.push("Crop: square with center or left-aligned subject for editorial feel.");
+      suggestions.push("Palette: muted beige #cfcfcf, soft blue-gray #aebccd.");
+    } else if(flags.has("sun") && !flags.has("cloud")){
+      suggestions.push("Concept: Sunny/golden hour — warm, vibrant scenes, portraits, outdoors.");
+      suggestions.push("Action: Shoot in golden hour; include sun flare or warm backlight. Use shadows for depth.");
+      suggestions.push("Overlay: bright headline like 'Mostly Sunny' with warm accent; consider a subtle badge with ☀️.");
+      suggestions.push("Crop: square or portrait (4:5) for people/landscape combos.");
+      suggestions.push("Palette: warm gold #ffc857, soft orange #ffb86b, deep blue for contrast.");
+    } else {
+      // default mixed conditions
+      suggestions.push("Concept: Mixed skies — combine sky texture with local subject (street, park, skyline).");
+      suggestions.push("Action: Balanced exposure; include foreground interest (tree, building) and sky as background.");
+      suggestions.push("Overlay: concise headline (one short phrase) and temp; small icon for condition.");
+      suggestions.push("Crop: square for Instagram feed; keep safe margins for overlays.");
+      suggestions.push("Palette: neutral blues and grays with one warm accent (e.g., #ffc857).");
+    }
+
+    // wind-specific tip
+    if(flags.has("wind")){
+      suggestions.push("Wind tip: emphasize motion — motion blur on grasses/flags, hair/clothing movement; diagonal compositions work well.");
+    }
+
+    // temperature extremes
+    if(first.high != null && first.low != null){
+      if(first.high >= 90) suggestions.push("Hot day: emphasize sun, warm colors, and hydration props (iced drink, sunglasses).");
+      if(first.low <= 32) suggestions.push("Freezing: show breath, gloves, or frost textures; use cool palette and soft light.");
+    }
+
+    // alerts
+    if(alerts && alerts.length){
+      suggestions.push("Alerts: Create an attention image variant — red/orange banner with '⚠️ Alert' and a one-line action (e.g., 'Avoid flooded roads'). Add link-in-bio note.");
+    }
+
+    // practical file and overlay suggestions
+    suggestions.push("Overlay text suggestion: use the short caption headline or a 3–4 word summary (e.g., 'Rain Today — Bring an Umbrella').");
+    suggestions.push("Filename suggestion: " + place.split(",")[0].replace(/\s+/g,"_") + "_forecast_" + (new Date().toISOString().slice(0,10)) + ".jpg");
+    suggestions.push("Accessibility: include the alt text produced above; add a short alt describing the photo and the weather snapshot.");
+    suggestions.push("Final tip: export at 1080×1080 for feed or 1080×1350 for portrait; keep important text inside a 90% safe margin.");
+
+    return suggestions.join("\n\n");
+  }
+
   async function generateForInput(rawInput, days){
     let lat,lon,place;
     if(rawInput.includes(",")){
@@ -265,6 +338,7 @@
       shortCap.innerText = buildShortCaption(agg, place, alerts);
       longCap.innerText = buildLongCaption(agg, place, days, alerts);
       altText.innerText = buildAltText(agg, place);
+      imageSuggestions.innerText = buildImageSuggestions(agg, place, alerts);
       if(alerts && alerts.length){
         alertsBlock.style.display = "";
         alertsList.innerHTML = "";
