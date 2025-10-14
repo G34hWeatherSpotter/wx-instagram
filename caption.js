@@ -1,4 +1,4 @@
-// caption.js
+// caption.js    
 // Minimal SPA for GitHub Pages: ZIP/latlon -> NWS forecast -> captions, alt text, image suggestions
 // Added: Hazardous Weather Outlook (HWO) lookup and display.
 
