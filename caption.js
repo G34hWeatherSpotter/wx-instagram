@@ -1,4 +1,4 @@
-// caption.js    
+// caption.js
 // Minimal SPA for GitHub Pages: ZIP/latlon -> NWS forecast -> captions, alt text, image suggestions
 // Added: Hazardous Weather Outlook (HWO) lookup and display.
 
@@ -141,7 +141,8 @@
       const flags = detectConditions(combined);
       const day_period = items.find(it => it.isDaytime);
       const night_period = items.find(it => !it.isDaytime);
-      out.push({ date: new Date(k+"T00:00:00Z"), high: highs, low: lows, flags, day_text: day_period?day_period.shortForecast:null, night_text: night_period?night_period.shortForecast:null, raw: items });
+      // store a shallow copy of the raw items instead of invalid literal
+      out.push({ date: new Date(k+"T00:00:00Z"), high: highs, low: lows, flags, day_text: day_period?day_period.shortForecast:null, night_text: night_period?night_period.shortForecast:null, raw: items.slice() });
     }
     return out;
   }
@@ -160,7 +161,7 @@
 
   function buildLongCaption(agg, place, days, alerts, tone="friendly"){
     const lines = [];
-    lines.push(`${place} — ${days}-day snapshot`);
+    lines.push(`${place} — ${days}-day weather outlook`);
     lines.push("");
     for(const d of agg){
       const w = d.date.toLocaleDateString(undefined,{weekday:"short"}).toUpperCase();
@@ -328,22 +329,22 @@
 
   function downloadPrefilledSVG({ headline, subline, miniStripText, filename = "overlay_1080.svg" } = {}) {
     const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escapeXml(headline || 'overlay')}">
-  <style>
-    .h{font-family:Inter,Arial,sans-serif;font-weight:700;font-size:56px;fill:#ffc857}
-    .s{font-family:Inter,Arial,sans-serif;font-weight:600;font-size:22px;fill:#e6eef8}
-    .m{font-family:Inter,Arial,sans-serif;font-weight:500;font-size:16px;fill:#e6eef8}
-  </style>
-  <rect width="1080" height="1080" fill="transparent"/>
-  <g transform="translate(60,840)">
-    <rect x="0" y="0" width="960" height="180" rx="14" fill="#071227" opacity="0.35"/>
-    <text x="38" y="64" class="h">${escapeXml(headline || "")}</text>
-    <text x="38" y="104" class="s">${escapeXml(subline || "")}</text>
-  </g>
-  <g transform="translate(60,320)">
-    <text class="m">${escapeXml(miniStripText || "")}</text>
-  </g>
-</svg>`;
+ <svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escapeXml(headline || 'overlay')}">
+   <style>
+     .h{font-family:Inter,Arial,sans-serif;font-weight:700;font-size:56px;fill:#ffc857}
+     .s{font-family:Inter,Arial,sans-serif;font-weight:600;font-size:22px;fill:#e6eef8}
+     .m{font-family:Inter,Arial,sans-serif;font-weight:500;font-size:16px;fill:#e6eef8}
+   </style>
+   <rect width="1080" height="1080" fill="transparent"/>
+   <g transform="translate(60,840)">
+     <rect x="0" y="0" width="960" height="180" rx="14" fill="#071227" opacity="0.35"/>
+     <text x="38" y="64" class="h">${escapeXml(headline || "")}</text>
+     <text x="38" y="104" class="s">${escapeXml(subline || "")}</text>
+   </g>
+   <g transform="translate(60,320)">
+     <text class="m">${escapeXml(miniStripText || "")}</text>
+   </g>
+ </svg>`;
     const blob = new Blob([svg], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
